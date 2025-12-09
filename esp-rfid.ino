@@ -1,59 +1,72 @@
-//https://randomnerdtutorials.com/esp32-mfrc522-rfid-reader-arduino/
-#include <MFRC522v2.h>
-#include <MFRC522DriverSPI.h>
-//#include <MFRC522DriverI2C.h>
-#include <MFRC522DriverPinSimple.h>
-#include <MFRC522Debug.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <SPI.h>
+#include <MFRC522.h>
 
-// Learn more about using SPI/I2C or check the pin assigment for your board: https://github.com/OSSLibraries/Arduino_MFRC522v2#pin-layout
-MFRC522DriverPinSimple ss_pin(5);
+#define SS_PIN 5
+#define RST_PIN 4     // RFID RST presunutý z GPIO21 na GPIO4
 
-MFRC522DriverSPI driver{ss_pin}; // Create SPI driver
-//MFRC522DriverI2C driver{};     // Create I2C driver
-MFRC522 mfrc522{driver};         // Create MFRC522 instance
+LiquidCrystal_I2C lcd(0x27, 16, 2); // adresa LCD 0x27, 16x2
+MFRC522 mfrc522(SS_PIN, RST_PIN);
 
 void setup() {
-  Serial.begin(115200);  // Initialize serial communication
-  while (!Serial);       // Do nothing if no serial port is opened (added for Arduinos based on ATMEGA32U4).
-  
-  mfrc522.PCD_Init();    // Init MFRC522 board.
-  MFRC522Debug::PCD_DumpVersionToSerial(mfrc522, Serial);	// Show details of PCD - MFRC522 Card Reader details.
-	Serial.println(F("Scan PICC to see UID"));
+  Serial.begin(9600);
+
+  // I2C na default pinoch LCD
+  Wire.begin(21, 22);   // SDA, SCL
+
+  lcd.init();           // inicializácia LCD
+  lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Starting...");
+
+  SPI.begin(18, 19, 23, SS_PIN);  // SCK, MISO, MOSI, SS
+
+  mfrc522.PCD_Init();    // inicializácia RFID
+  lcd.setCursor(0, 1);
+  lcd.print("Scan a card");
 }
 
 void loop() {
-	// Reset the loop if no new card present on the sensor/reader. This saves the entire process when idle.
-	if (!mfrc522.PICC_IsNewCardPresent()) {
-		return;
-	}
+  // Ak nie je nová karta → návrat
+  if (!mfrc522.PICC_IsNewCardPresent()) return;
+  if (!mfrc522.PICC_ReadCardSerial()) return;
 
-	// Select one of the cards.
-	if (!mfrc522.PICC_ReadCardSerial()) {
-		return;
-	}
-
-  Serial.print("Card UID: ");
-  MFRC522Debug::PrintUID(Serial, (mfrc522.uid));
-  Serial.println();
-
-  // Save the UID on a String variable
+  // Prevod UID na hex string
   String uidString = "";
   for (byte i = 0; i < mfrc522.uid.size; i++) {
-    if (mfrc522.uid.uidByte[i] < 0x10) {
-      uidString += "0"; 
-    }
+    if (mfrc522.uid.uidByte[i] < 0x10) uidString += "0";
     uidString += String(mfrc522.uid.uidByte[i], HEX);
   }
-  if(uidString == "23b7fca5")
-  {
-    Serial.println("Karta zamietnuta.");
+  uidString.toLowerCase();
+
+  // Vypis UID na LCD
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("UID:");
+  lcd.setCursor(0, 1);
+  lcd.print(uidString);
+
+  delay(2000);
+  lcd.clear();
+
+  // Porovnanie UID s povolenými kartami
+  if (uidString == "e36ac8a6") {
+    lcd.print("Access GRANTED");
   }
-  else if(uidString == "63930b10")
-  {
-    Serial.println("Karta povolena.");
+  else if (uidString == "33fb92aa") {
+    lcd.print("Access DENIED");
   }
-  else
-  {
-    Serial.println("Karta neznama.");
+  else {
+    lcd.print("Unknown card");
   }
+
+  delay(2000);
+  lcd.clear();
+  lcd.print("Scan a card");
+
+  // Stop RFID
+  mfrc522.PICC_HaltA();
+  mfrc522.PCD_StopCrypto1();
 }
